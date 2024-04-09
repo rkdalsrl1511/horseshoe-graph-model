@@ -1,0 +1,63 @@
+---
+title: "simulation"
+output: github_document
+date: "2024-04-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(MASS)
+library(tictoc)
+library(GIGrvg)
+```
+
+### 시뮬레이션 데이터 생성
+
+```{r}
+N <- 10000
+p <- 200
+real_pi <- 0.05
+sim_data <- simulate_sparse_matrix(real_pi, p)
+sim_sigma <- round(sim_data, digits = 3)
+sim_omega <- solve(sim_sigma)
+Y <- mvrnorm(n = N, mu = rep(0, p), Sigma = sim_sigma)
+```
+
+### 함수 적용 + 경과 시간 체크
+```{r}
+tic() 
+approx_horseshoe_model <- concentration_horseshoe(Y = Y, burn = 0, iter = 500,
+                                                  fixed_threshold = 10^(-4),
+                                                  approximate = TRUE)
+toc()
+```
+
+```{r}
+tic()
+auto_approx_horseshoe_model <- concentration_horseshoe(Y = Y, burn = 0, 
+                                                       iter = 500,
+                                                       approximate = TRUE, 
+                                                       auto.threshold = TRUE)
+toc()
+```
+
+```{r}
+tic()
+sssl_model <- concentration_sssl(Y, pi = 2/(p-1), burn = 0, iter = 500, h = 50)
+toc()
+```
+
+```{r}
+# sssl
+sum((sssl_model$OmegaHat - sim_omega)^2)
+
+# approx_horseshoe
+sum((approx_horseshoe_model$OmegaHat - sim_omega)^2)
+
+# auto_approx_horseshoe
+sum((auto_approx_horseshoe_model$OmegaHat - sim_omega)^2)
+```
