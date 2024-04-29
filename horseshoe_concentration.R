@@ -18,11 +18,12 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
   Omega_hat <- matrix(0, nrow = p, ncol = p)
   Sigma_hat <- matrix(0, nrow = p, ncol = p)
   Eta_hat <- matrix(0, nrow = p, ncol = p)
+  concentration_graph <- matrix(0, nrow = p, ncol = p)
   OmegaSamples <- array(0, dim = c(p, p, iter + burn))
   SigmaSamples <- array(0, dim = c(p, p, iter + burn))
   XiSamples <- rep(0, iter + burn)
   EtaSamples <- array(0, dim = c(p, p, iter + burn))
-  active_matrix_list <- list()
+  ActiveMatrixSamples <- array(0, dim = c(p, p, iter + burn))
   
   # sampling start
   for (i in 1:(iter + burn)) {
@@ -32,18 +33,29 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
     # active_matrix
     active_matrix <- matrix(0, nrow = p, ncol = p)
     # update m_eff
+    #if (auto.threshold == TRUE) {
+    #  if (i %% t == 0) {
+    #      for (j in 1:p) {
+    #        u_i <- stats::runif(1, 0, 1)
+    #        p_i <- exp(adapt_p0 + adapt_p1 * i)
+    #        if (u_i < p_i) {
+    #        m_eff[j] <- sum(1/((S[j, j]+lambda)^(-1) * xi * eta[-j, j] *
+    #                             diag(estimate_Omega[-j, -j]) + 1))
+    #        }
+    #      }
+    #  }
+    #}
+    
+    u_i <- 0
+    p_i <- 1
+    
     if (auto.threshold == TRUE) {
       if (i %% t == 0) {
-        for (j in 1:p) {
-          u_i <- stats::runif(1, 0, 1)
-          p_i <- exp(adapt_p0 + adapt_p1 * i)
-          if (u_i < p_i) {
-            m_eff[j] <- sum(1/((S[j, j]+lambda)^(-1) * xi * eta[-j, j] *
-                                 diag(estimate_Omega[-j, -j]) + 1))
-          }
-        }
+        u_i <- stats::runif(1, 0, 1)
+        p_i <- exp(adapt_p0 + adapt_p1 * i)
       }
     }
+    
     # update Omega
     for (j in 1:p) {
       v12 <- xi * eta[, j]
@@ -107,6 +119,7 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
       estimate_Sigma[-j, j] <- -z/v
       estimate_Sigma[j, -j] <- -z/v
       estimate_Sigma[j, j] <- 1/v
+      
       # eta update
       upsi <- stats::runif(p-1, 0, 1/(1 + eta[-j, j]))
       tempps <- (xi * u_star^2)/2
@@ -119,27 +132,29 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
       eta[-j, j] <- new_eta
       eta[j, -j] <- new_eta
       
-      #xi update : fixed
-      #xi <- 100
+      if (u_i < p_i) {
+        m_eff[j] <- sum(1/((S[j, j]+lambda)^(-1) * xi * eta[-j, j] *
+                             diag(estimate_Omega[-j, -j]) + 1))
+      }
       
-      # xi update : halfCauchy
-      #tempt <- sum(estimate_Omega^2 * eta)/4
-      #utau <- stats::runif(1, 0, 1/(1 + xi))
-      #ubt <- (1 - utau)/utau
-      #Fubt <- stats::pgamma(ubt, (p*(p-1)+2)/4, scale = 1/tempt)
-      #Fubt <- max(Fubt, 1e-08)
-      #ut <- stats::runif(1, 0, Fubt)
-      #xi <- stats::qgamma(ut, (p*(p-1)+2)/4, scale = 1/tempt)
       
-      # xi update : Metropolis algorithm
-      #tempt <- sum(estimate_Omega^2 * eta)/4
-      #new_xi <- exp(stats::rnorm(1, mean = log(xi), sd = 0.8))
-      #dxi <- stats::dgamma(c(xi, new_xi), (p*(p-1)+2)/4, scale = 1/tempt)
-      #dxi <- ifelse(dxi <= 2.220446e-16, 2.220446e-16, dxi)
-      #accept_prob <- ((1+xi)*new_xi*dxi[2])/((1+new_xi)*xi*dxi[1])
-      #if (runif(1, 0, 1) < accept_prob) {
-      #  xi <- new_xi
+      #if (auto.threshold == TRUE) {
+      #  if (i %% t == 0) {
+      #      u_i <- stats::runif(1, 0, 1)
+      #      p_i <- exp(adapt_p0 + adapt_p1 * i)
+      #      if (u_i < p_i) {
+      #      m_eff[j] <- sum(1/((S[j, j]+lambda)^(-1) * xi * eta[-j, j] *
+      #                           diag(estimate_Omega[-j, -j]) + 1))
+      #      }
+      #      
+      #  }
       #}
+      # eta update : rejection sampler version
+      #eps <- (xi * u_star^2)/2
+      #new_eta <- rejection_sampler(eps, a = 0.2, b = 10)
+      #new_eta <- ifelse(new_eta <= 2.220446e-16, 2.220446e-16, new_eta)
+      #eta[-j, j] <- new_eta
+      #eta[j, -j] <- new_eta
     }
     
     # xi update : halfCauchy
@@ -151,15 +166,29 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
     ut <- stats::runif(1, 0, Fubt)
     xi <- stats::qgamma(ut, (p*(p-1)+2)/4, scale = 1/tempt)
     
+    #xi update : fixed
+    #xi <- 100
+    
+    # xi update : Metropolis algorithm
+    #tempt <- sum(estimate_Omega^2 * eta)/4
+    #new_xi <- exp(stats::rnorm(1, mean = log(xi), sd = 0.8))
+    #dxi <- stats::dgamma(c(xi, new_xi), (p*(p-1)+2)/4, scale = 1/tempt)
+    #dxi <- ifelse(dxi <= 2.220446e-16, 2.220446e-16, dxi)
+    #accept_prob <- ((1+xi)*new_xi*dxi[2])/((1+new_xi)*xi*dxi[1])
+    #if (runif(1, 0, 1) < accept_prob) {
+    #  xi <- new_xi
+    #}
+    
     OmegaSamples[, , i] <- estimate_Omega
     SigmaSamples[, , i] <- estimate_Sigma
     EtaSamples[, , i] <- eta
     XiSamples[i] <- xi
+    ActiveMatrixSamples[, , i] <- active_matrix
     if (i > burn) {
       Omega_hat <- Omega_hat + estimate_Omega
       Sigma_hat <- Sigma_hat + estimate_Sigma
       Eta_hat <- Eta_hat + eta
-      active_matrix_list[[i-burn]] <- active_matrix
+      concentration_graph <- concentration_graph + active_matrix
     }
   }
   
@@ -169,9 +198,12 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
   Sigma_hat <- Sigma_hat/iter
   Eta_hat <- Eta_hat/iter
   Xi_hat <- mean(XiSamples[(burn+1):(iter+burn)])
+  concentration_graph <- ifelse(concentration_graph/iter > 0.5, 1, 0)
+  
   result <- list(info = model_info, OmegaSamples = OmegaSamples, 
                  SigmaSamples = SigmaSamples, EtaSamples = EtaSamples, 
-                 XiSamples = XiSamples, OmegaHat = Omega_hat, 
-                 SigmaHat = Sigma_hat, EtaHat = Eta_hat, XiHat = Xi_hat,
-                 ActiveMatrixList = active_matrix_list)
+                 XiSamples = XiSamples, 
+                 ActiveMatrixSamples = ActiveMatrixSamples, 
+                 OmegaHat = Omega_hat, SigmaHat = Sigma_hat, EtaHat = Eta_hat, 
+                 XiHat = Xi_hat, Graph = concentration_graph)
 }
