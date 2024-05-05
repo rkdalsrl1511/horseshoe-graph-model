@@ -1,7 +1,7 @@
 # horseshoe concentration model
 concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
                                     approximate = FALSE, fixed_threshold = 0,
-                                    auto.threshold = FALSE, t = 10, 
+                                    auto.threshold = FALSE, t = 5, 
                                     adapt_p0 = 0, adapt_p1 = -4.6*10^(-4)) {
   N <- nrow(Y)
   p <- ncol(Y)
@@ -9,7 +9,7 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
   xi <- 1
   eta <- matrix(1, nrow = p, ncol = p)
   diag(eta) <- 0
-  estimate_Omega <- matrix(0, nrow = p, ncol = p)
+  estimate_Omega <- diag(1, nrow = p, ncol = p)
   estimate_Sigma <- S / N
   m_eff <- rep(p-1, p)
   if (fixed_threshold == 0) {
@@ -27,40 +27,24 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
   
   # sampling start
   for (i in 1:(iter + burn)) {
-    if (i %% 500 == 0) {
-      cat("iter : ", i, "\n")
-    }
-    # active_matrix
-    active_matrix <- matrix(0, nrow = p, ncol = p)
-    # update m_eff
-    #if (auto.threshold == TRUE) {
-    #  if (i %% t == 0) {
-    #      for (j in 1:p) {
-    #        u_i <- stats::runif(1, 0, 1)
-    #        p_i <- exp(adapt_p0 + adapt_p1 * i)
-    #        if (u_i < p_i) {
-    #        m_eff[j] <- sum(1/((S[j, j]+lambda)^(-1) * xi * eta[-j, j] *
-    #                             diag(estimate_Omega[-j, -j]) + 1))
-    #        }
-    #      }
-    #  }
+    #if (i %% 100 == 0) {
+    #  cat("iter : ", i, "\n")
     #}
-    
-    u_i <- 0
-    p_i <- 1
-    
-    if (auto.threshold == TRUE) {
-      if (i %% t == 0) {
-        u_i <- stats::runif(1, 0, 1)
-        p_i <- exp(adapt_p0 + adapt_p1 * i)
-      }
-    }
-    
+    # active_matrix renewal
+    active_matrix <- matrix(0, nrow = p, ncol = p)
     # update Omega
     for (j in 1:p) {
       v12 <- xi * eta[, j]
       if (approximate == TRUE) {
         if (auto.threshold == TRUE) {
+          if (i %% t == 0) {
+            u_i <- stats::runif(1, 0, 1)
+            p_i <- exp(adapt_p0 + adapt_p1 * i)
+            if (u_i < p_i) {
+              m_eff[j] <- sum(1/((S[j, j]+lambda)^(-1) * xi * eta[-j, j] *
+                                   diag(estimate_Omega[-j, -j]) + 1))
+            }
+          }
           threshold <- sort(eta[-j, j])[ceiling(m_eff[j])]
           active_matrix[-j, j] <- ifelse(eta[-j, j] <= threshold, 1, active_matrix[-j, j])
           active_matrix[j, -j] <- active_matrix[-j, j]
@@ -88,6 +72,26 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
           diag(v12[k], nrow = active_num, ncol = active_num)
         inv_C <- (inv_C + t(inv_C))/2
         C_chol <- chol(inv_C)
+        ########################################################################
+        # 에러 검출용 코드 #####################################################
+        ########################################################################
+        #C_chol <- tryCatch(chol(inv_C),
+        #                   error = function(e) {
+        #                     list(now_iter = i,
+        #                          now_j = j,
+        #                          now_meff = m_eff[j],
+        #                          now_omega = estimate_Omega,
+        #                          now_active = active_matrix[, j],
+        #                          now_active_matrix = active_matrix,
+        #                          all_omega = OmegaSamples,
+        #                          all_active_matrix = ActiveMatrixSamples,
+        #                          all_xi = XiSamples,
+        #                          all_eta = EtaSamples)
+        #                   })
+        #if (is.list(C_chol))
+        #  return(C_chol)
+        ########################################################################
+        ########################################################################
         x <- solve(t(C_chol), S[k, j])
         mu <- -solve(C_chol, x)
         f <- rnorm(active_num, mean = 0, sd = 1)
@@ -97,17 +101,21 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
         estimate_Omega[j, k] <- u
         # inactive u sampling
         if (p-active_num-1 != 0) {
-          n_f <- rnorm(p-active_num-1, 0, 1)
-          n_u <- -(S[-c(k, j), j]/v12[-c(k, j)]) + n_f/sqrt(v12[-c(k, j)])
-          estimate_Omega[-c(k, j), j] <- n_u
-          estimate_Omega[j, -c(k, j)] <- n_u
+          #n_f <- rnorm(p-active_num-1, 0, 1)
+          #n_u <- -(S[-c(k, j), j]/v12[-c(k, j)]) + n_f/sqrt(v12[-c(k, j)])
+          #estimate_Omega[-c(k, j), j] <- n_u
+          #estimate_Omega[j, -c(k, j)] <- n_u
+          estimate_Omega[-c(k, j), j] <- 0.0001
+          estimate_Omega[j, -c(k, j)] <- 0.0001
         }
       } else { 
         # 모든 성분이 inactive인 경우
-        f <- rnorm(p-1, 0, 1)
-        u <- -(S[-j, j]/v12[-j]) + f/sqrt(v12[-j])
-        estimate_Omega[-j, j] <- u
-        estimate_Omega[j, -j] <- u
+        #f <- rnorm(p-1, 0, 1)
+        #u <- -(S[-j, j]/v12[-j]) + f/sqrt(v12[-j])
+        #estimate_Omega[-j, j] <- u
+        #estimate_Omega[j, -j] <- u
+        estimate_Omega[-j, j] <- 0.0001
+        estimate_Omega[j, -j] <- 0.0001
       }
       u_star <- estimate_Omega[-j, j]
       # v sampling
@@ -119,7 +127,6 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
       estimate_Sigma[-j, j] <- -z/v
       estimate_Sigma[j, -j] <- -z/v
       estimate_Sigma[j, j] <- 1/v
-      
       # eta update
       upsi <- stats::runif(p-1, 0, 1/(1 + eta[-j, j]))
       tempps <- (xi * u_star^2)/2
@@ -132,23 +139,6 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
       eta[-j, j] <- new_eta
       eta[j, -j] <- new_eta
       
-      if (u_i < p_i) {
-        m_eff[j] <- sum(1/((S[j, j]+lambda)^(-1) * xi * eta[-j, j] *
-                             diag(estimate_Omega[-j, -j]) + 1))
-      }
-      
-      
-      #if (auto.threshold == TRUE) {
-      #  if (i %% t == 0) {
-      #      u_i <- stats::runif(1, 0, 1)
-      #      p_i <- exp(adapt_p0 + adapt_p1 * i)
-      #      if (u_i < p_i) {
-      #      m_eff[j] <- sum(1/((S[j, j]+lambda)^(-1) * xi * eta[-j, j] *
-      #                           diag(estimate_Omega[-j, -j]) + 1))
-      #      }
-      #      
-      #  }
-      #}
       # eta update : rejection sampler version
       #eps <- (xi * u_star^2)/2
       #new_eta <- rejection_sampler(eps, a = 0.2, b = 10)
@@ -193,7 +183,6 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
   }
   
   model_info <- list(Y = Y, burn = burn, iter = iter, pi = pi, lambda = lambda)
-  
   Omega_hat <- Omega_hat/iter
   Sigma_hat <- Sigma_hat/iter
   Eta_hat <- Eta_hat/iter

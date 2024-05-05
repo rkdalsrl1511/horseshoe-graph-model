@@ -1,3 +1,4 @@
+# sssl concentration model
 concentration_sssl <- function(Y, burn = 1000, iter = 5000, pi, lambda = 1, 
                                v0 = 0.02, h = 50) {
   
@@ -18,9 +19,9 @@ concentration_sssl <- function(Y, burn = 1000, iter = 5000, pi, lambda = 1,
   
   # sampling start
   for (i in 1:(iter + burn)) {
-    if (i %% 500 == 0) {
-      cat("iter : ", i, "\n")
-    }
+    #if (i %% 100 == 0) {
+    #  cat("iter : ", i, "\n")
+    #}
     # update Omega
     for (j in 1:p) {
       # inverse omega11 matrix
@@ -56,18 +57,13 @@ concentration_sssl <- function(Y, burn = 1000, iter = 5000, pi, lambda = 1,
       estimate_Sigma[j, j] <- 1/v
       
       # V matrix update
-      prob_v <- pi*dnorm(u, 0, v1)/(pi*dnorm(u, 0, v1)+(1-pi)*dnorm(u, 0, v0))
-      v_star <- ifelse(runif(p-1, 0, 1) < prob_v, v1, v0)
+      w1 <- -log(v0) - (0.5*u^2)/(v0^2) + log(1 - pi)
+      w2 <- -log(v1) - (0.5*u^2)/(v1^2) + log(pi)
+      w_max <- ifelse(w1 >= w2, w1, w2)
+      w <- exp(w2 - w_max) / (exp(w1 - w_max) + exp(w2 - w_max))
+      v_star <- ifelse(runif(p-1, 0, 1) < w, v1, v0)
       V[-j, j] <- v_star
       V[j, -j] <- v_star
-      # matlab에 구현된 방법
-      #w1 <- -log(v0) - (0.5*u^2)/(v0^2) + log(1 - pi)
-      #w2 <- -log(v1) - (0.5*u^2)/(v1^2) + log(pi)
-      #w_max <- ifelse(w1 >= w2, w1, w2)
-      #w <- exp(w2 - w_max) / (exp(w1 - w_max) + exp(w2 - w_max))
-      #v_star <- ifelse(runif(p-1, 0, 1) < w, v1, v0)
-      #V[-j, j] <- v_star
-      #V[j, -j] <- v_star
     }
     OmegaSamples[, , i] <- estimate_Omega
     SigmaSamples[, , i] <- estimate_Sigma
