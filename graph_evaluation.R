@@ -1,4 +1,3 @@
-# 그래프 평가(혼동행렬) 함수
 graph_evaluation <- function(true_graph, pred_graph) {
   TP <- sum((true_graph == 1) & (pred_graph == 1))
   FP <- sum((true_graph == 0) & (pred_graph == 1))

@@ -1,0 +1,248 @@
+---
+title: "concentration simulation"
+output: html_document
+date: "2025-08-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(MASS)
+library(tictoc)
+library(GIGrvg)
+library(huge)
+```
+
+# 1. N = 200, p = 150
+
+non-zero 비율을 조정해야 approx_horseshoe와 adapt_horseshoe의 결과 차이를 보기 좋을 것 같다.
+
+일단 random : prob을 0.3, 0.5, 0.7로 3가지 시뮬레이션 데이터를 만들기
+
+hub, cluster, band는 잠시 보류
+
+```{r}
+set.seed(1)
+N <- 200
+p <- 150
+#simrandom1 <- huge.generator(n = N, d = p, graph = "random", prob = 0.03)
+#simrandom2 <- huge.generator(n = N, d = p, graph = "random", prob = 0.05)
+#simrandom3 <- huge.generator(n = N, d = p, graph = "random", prob = 0.07)
+#simulation2 <- huge.generator(n = N, d = p, graph = "hub")
+#simulation3 <- huge.generator(n = N, d = p, graph = "cluster")
+#simulation4 <- huge.generator(n = N, d = p, graph = "band")
+#simulation5 <- huge.generator(n = N, d = p, graph = "scale-free")
+
+#saveRDS(simrandom1, file = "150\\simrandom1.rds")
+#saveRDS(simrandom2, file = "150\\simrandom2.rds")
+#saveRDS(simrandom3, file = "150\\simrandom3.rds")
+#saveRDS(simulation2, file = "150\\sim2.rds")
+#saveRDS(simulation3, file = "150\\sim3.rds")
+#saveRDS(simulation4, file = "150\\sim4.rds")
+#saveRDS(simulation5, file = "150\\sim5.rds")
+
+simrandom1 <- readRDS(file = "150\\simrandom1.rds")
+simrandom2 <- readRDS(file = "150\\simrandom2.rds")
+simrandom3 <- readRDS(file = "150\\simrandom3.rds")
+```
+
+```{r}
+sim_omega <- simrandom1$omega
+sim_sigma <- simrandom1$sigma
+Y <- simrandom1$data
+```
+
+```{r}
+tic() # 937.64, 1054.8, 1127.38
+sssl_model <- concentration_sssl(Y, pi = 2/(p-1), 
+                                 burn = 500, iter = 1000, h = 50)
+toc()
+
+#tic()
+#sssl_model2 <- concentration_sssl(Y, pi = 2/(p-1), 
+#                                 burn = 500, iter = 1000, h = 10)
+#toc()
+
+tic() # 519.91, 902.11, 941.59
+horseshoe_model <- concentration_horseshoe2(Y = Y, 
+                                            burn = 500, iter = 1000, 
+                                            approximate = FALSE)
+toc()
+
+tic() # 180, 316,6
+approx_horseshoe <- concentration_horseshoe(Y = Y,
+                                            burn = 500, iter = 1000,
+                                            approximate = TRUE,
+                                            auto.threshold = FALSE)
+toc()
+
+tic() # 212.69, 236.01
+adapt_horseshoe <- concentration_horseshoe(Y = Y,
+                                           burn = 500, iter = 1000,
+                                           approximate = TRUE, 
+                                           auto.threshold = TRUE)
+toc()
+
+# HSL-MCMC 파트 : 
+S <- crossprod(Y) / N
+
+tic()
+fit <- ghs_like_mcmc(S, N, burnin = 500, nmc = 1000, thin = 1,
+                     seed = 1, save_omega = TRUE, verbose = TRUE)
+toc()
+```
+
+## 1.1 결과 요약
+
+주요 지표
+
+1. stein's loss(일단 보류)
+2. frobenius norm의 평균과 표준편차
+3. MCC, Sensitivity, Precision
+4. 추정 시간
+
+```{r}
+frobenius_vector <- function(OmegaSamples, omega) {
+  
+  n <- dim(OmegaSamples)[3]
+  result <- rep(0, n)
+  
+  for (i in 1:n) 
+    result[i] <- sum((OmegaSamples[, , i] - omega)^2)
+  
+  result
+  
+}
+```
+
+
+```{r}
+sum((sssl_model$OmegaHat - sim_omega)^2)
+sum((horseshoe_model$OmegaHat - sim_omega)^2)
+sum((approx_horseshoe$OmegaHat - sim_omega)^2)
+sum((adapt_horseshoe$OmegaHat - sim_omega)^2)
+
+hsl_hat <- posterior_mean_precision(fit)  # 사후평균 정밀도
+sum((hsl_hat - sim_omega)^2)
+
+dim(fit$Omegas)
+
+hsl_hat <- apply(fit$Omegas, c(1, 2), mean)
+
+```
+
+simrandom1
+> sum((sssl_model$OmegaHat - sim_omega)^2)
+[1] 28.90578
+> sum((horseshoe_model$OmegaHat - sim_omega)^2)
+[1] 22.75853
+> sum((approx_horseshoe$OmegaHat - sim_omega)^2)
+[1] 23.33087
+> sum((adapt_horseshoe$OmegaHat - sim_omega)^2)
+[1] 25.07363
+
+simrandom2
+[1] 41.64005
+[1] 33.17916
+[1] 33.74832
+[1] 36.22801
+
+```{r}
+true_graph <- ifelse(abs(sim_omega) > 0.001, 1, 0)
+diag(true_graph) <- 0
+sssl_graph <- sssl_model$Graph
+horseshoe_graph <- horseshoe_model$Graph
+approx_horseshoe_graph <- approx_horseshoe$Graph
+adapt_horseshoe_graph <- adapt_horseshoe$Graph
+hsl_graph <- edges_from_ci(fit$Omegas)
+horseshoe_credible_graph <- edges_from_ci(horseshoe_model$OmegaSamples)
+
+
+graph_evaluation(true_graph, sssl_graph)
+graph_evaluation(true_graph, horseshoe_graph)
+graph_evaluation(true_graph, approx_horseshoe_graph)
+graph_evaluation(true_graph, adapt_horseshoe_graph)
+graph_evaluation(true_graph, hsl_graph)
+graph_evaluation(true_graph, horseshoe_credible_graph)
+```
+
+simrandom1
+> graph_evaluation(true_graph, sssl_graph)
+MCC :  0.5610882 
+Accuracy :  0.9800889 
+Sensitivity :  0.3363636 
+Specificity :  0.9995421 
+Precision :  0.9568966 
+> graph_evaluation(true_graph, horseshoe_graph)
+MCC :  0.7350453 
+Accuracy :  0.9864889 
+Sensitivity :  0.6242424 
+Specificity :  0.9974359 
+Precision :  0.8803419 
+> graph_evaluation(true_graph, approx_horseshoe_graph)
+MCC :  0.652705 
+Accuracy :  0.9756444 
+Sensitivity :  0.7878788 
+Specificity :  0.9813187 
+Precision :  0.5603448 
+> graph_evaluation(true_graph, adapt_horseshoe_graph)
+MCC :  0.6816825 
+Accuracy :  0.9844444 
+Sensitivity :  0.5151515 
+Specificity :  0.9986264 
+Precision :  0.9189189 
+
+simrandom2
+MCC :  0.3886732 
+Accuracy :  0.9587556 
+Sensitivity :  0.1669691 
+Specificity :  0.9995327 
+Precision :  0.9484536 
+MCC :  0.5875455 
+Accuracy :  0.9681778 
+Sensitivity :  0.4210526 
+Specificity :  0.9963548 
+Precision :  0.8560886 
+MCC :  0.1749376 
+Accuracy :  0.5072 
+Sensitivity :  0.9183303 
+Specificity :  0.4860267 
+Precision :  0.08426311 
+MCC :  0.5407969 
+Accuracy :  0.9657778 
+Sensitivity :  0.3411978 
+Specificity :  0.9979437 
+Precision :  0.8952381 
+
+# 2. N = 120, p = 100
+
+```{r}
+set.seed(1)
+N <- 120
+p <- 100
+#simulation1 <- huge.generator(n = N, d = p, graph = "random")
+#simulation2 <- huge.generator(n = N, d = p, graph = "hub")
+#simulation3 <- huge.generator(n = N, d = p, graph = "cluster")
+#simulation4 <- huge.generator(n = N, d = p, graph = "band")
+#simulation5 <- huge.generator(n = N, d = p, graph = "scale-free")
+
+#saveRDS(simulation1, file = "100\\sim1.rds")
+#saveRDS(simulation2, file = "100\\sim2.rds")
+#saveRDS(simulation3, file = "100\\sim3.rds")
+#saveRDS(simulation4, file = "100\\sim4.rds")
+#saveRDS(simulation5, file = "100\\sim5.rds")
+
+simulation1 <- readRDS(file = "100\\sim1.rds")
+simulation2 <- readRDS(file = "100\\sim2.rds")
+simulation3 <- readRDS(file = "100\\sim3.rds")
+simulation4 <- readRDS(file = "100\\sim4.rds")
+simulation5 <- readRDS(file = "100\\sim5.rds")
+```
+
+
+
+
+

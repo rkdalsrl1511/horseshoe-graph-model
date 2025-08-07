@@ -1,4 +1,3 @@
-# sssl concentration model
 concentration_sssl <- function(Y, burn = 1000, iter = 5000, pi, lambda = 1, 
                                v0 = 0.02, h = 50) {
   
@@ -13,15 +12,15 @@ concentration_sssl <- function(Y, burn = 1000, iter = 5000, pi, lambda = 1,
   Omega_hat <- matrix(0, nrow = p, ncol = p)
   Sigma_hat <- matrix(0, nrow = p, ncol = p)
   concentraion_graph <- matrix(0, nrow = p, ncol = p)
-  OmegaSamples <- array(0, dim = c(p, p, iter + burn))
-  SigmaSamples <- array(0, dim = c(p, p, iter + burn))
-  VSamples <- array(0, dim = c(p, p, iter + burn))
+  OmegaSamples <- array(0, dim = c(p, p, iter))
+  SigmaSamples <- array(0, dim = c(p, p, iter))
+  VSamples <- array(0, dim = c(p, p, iter))
   
   # sampling start
   for (i in 1:(iter + burn)) {
-    #if (i %% 100 == 0) {
-    #  cat("iter : ", i, "\n")
-    #}
+    if (i %% 1000 == 0) {
+      cat("iter : ", i, "\n")
+    }
     # update Omega
     for (j in 1:p) {
       # inverse omega11 matrix
@@ -34,7 +33,6 @@ concentration_sssl <- function(Y, burn = 1000, iter = 5000, pi, lambda = 1,
       # u sampling
       inv_C <- (S[j, j] + lambda) * inv_omega11 + diag(v12^(-1))
       C_chol <- chol(inv_C)
-      #x <- solve(C_chol, S[-j, j])
       x <- solve(t(C_chol), S[-j, j])
       mu <- -solve(C_chol, x)
       f <- rnorm(p-1, mean = 0, sd = 1)
@@ -65,13 +63,14 @@ concentration_sssl <- function(Y, burn = 1000, iter = 5000, pi, lambda = 1,
       V[-j, j] <- v_star
       V[j, -j] <- v_star
     }
-    OmegaSamples[, , i] <- estimate_Omega
-    SigmaSamples[, , i] <- estimate_Sigma
-    VSamples[, , i] <- V
     if (i > burn) {
+      OmegaSamples[, , i-burn] <- estimate_Omega
+      SigmaSamples[, , i-burn] <- estimate_Sigma
+      VSamples[, , i-burn] <- V
       Omega_hat <- Omega_hat + estimate_Omega
       Sigma_hat <- Sigma_hat + estimate_Sigma
       concentraion_graph <- concentraion_graph + V
+      
     }
   }
   
