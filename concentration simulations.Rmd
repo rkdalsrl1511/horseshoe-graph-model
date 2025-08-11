@@ -149,8 +149,7 @@ simrandom2
 [1] 36.22801
 
 ```{r}
-true_graph <- ifelse(abs(sim_omega) > 0.001, 1, 0)
-diag(true_graph) <- 0
+true_graph <- matrix(as.numeric(simrandom3$theta), nrow = 150, ncol = 150)
 sssl_graph <- sssl_model$Graph
 horseshoe_graph <- horseshoe_model$Graph
 approx_horseshoe_graph <- approx_horseshoe$Graph
