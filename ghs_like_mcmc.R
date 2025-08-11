@@ -32,32 +32,11 @@ rinvgamma <- function(n, shape, rate) {
   1 / rgamma(n, shape = shape, rate = rate)
 }
 
-# Sample from Exp(rate) truncated to (0, 1), vectorized over 'rate'.
-rexptrunc01_vec <- function(rate_vec) {
-  # If rate is extremely small, fallback to Uniform(0,1) as approx (Exp ~ heavy tail)
-  # but here typical rates are moderate to large, so we use inverse-CDF exactly.
-  # Truncated CDF on (0,1): F_trunc(x) = (1 - exp(-r x)) / (1 - exp(-r)), x in (0,1)
-  # Inverse: x = - (1/r) * log( 1 - u * (1 - exp(-r)) )
-  u <- runif(length(rate_vec))
-  # avoid numerical issues for very large rate: 1 - exp(-r) -> 1
-  one_minus_e <- 1 - exp(-pmin(rate_vec, 700)) # cap exponent to avoid underflow
-  x <- -log(1 - u * one_minus_e) / pmax(rate_vec, .Machine$double.eps)
-  # If any x spills above 1 due to numerics, clip to slightly below 1
-  pmin(x, 1 - 1e-12)
-}
-
-# Safe inversion for SPD matrices using Cholesky
-solve_spd <- function(A) {
-  R <- chol(A, pivot = FALSE)
-  chol2inv(R)
-}
-
-ghs_like_mcmc <- function(S, n, burnin, nmc, thin = 1, seed = NULL,
+ghs_like_mcmc <- function(Y, n, burnin, nmc, thin = 1, seed = NULL,
                           save_omega = FALSE, t_cap = 1e15, verbose = TRUE) {
   if (!is.null(seed)) set.seed(seed)
-  if (!is.matrix(S) || nrow(S) != ncol(S)) stop("S must be a square matrix (sample covariance = X'X / n).")
+  S <- t(Y) %*% Y
   p <- ncol(S)
-  nS <- n * S
 
   # Initialize
   Omega <- diag(p)
@@ -71,11 +50,7 @@ ghs_like_mcmc <- function(S, n, burnin, nmc, thin = 1, seed = NULL,
 
   n_total <- burnin + nmc * thin
   save_idx <- 0L
-  if (save_omega) {
-    Omegas <- array(NA_real_, dim = c(p, p, nmc))
-  } else {
-    Omega_mean <- matrix(0.0, p, p)
-  }
+  Omegas <- array(NA_real_, dim = c(p, p, nmc))
   tau2_path <- numeric(nmc)
 
   if (verbose) cat(sprintf("Starting GHS-LIKE-MCMC: p=%d, burnin=%d, saved=%d, thin=%d\n", p, burnin, nmc, thin))
@@ -84,8 +59,8 @@ ghs_like_mcmc <- function(S, n, burnin, nmc, thin = 1, seed = NULL,
     # Sweep over columns i = 1..p
     for (i in 1:p) {
       # 1) Sample gamma ~ Gamma(n/2 + 1, 2/s_ii)
-      sii <- nS[i, i]
-      S_col <- nS[-i, i, drop = FALSE]
+      sii <- S[i, i]
+      S_col <- S[-i, i, drop = FALSE]
       gamma_i <- rgamma(1, shape = n/2 + 1, rate = max(sii, .Machine$double.eps) / 2)
 
       # 2) Compute Omega^{-1}_{(-i)(-i)} via Sigma blocks
@@ -115,10 +90,13 @@ ghs_like_mcmc <- function(S, n, burnin, nmc, thin = 1, seed = NULL,
 
       # 6) Local scales: sample m in (0,1), then t^2
       rate_m <- t2_vec / 2
-      m_new  <- rexptrunc01_vec(rate_m)
+      u <- runif(length(rate_m))
+      one_minus_e <- 1 - exp(-pmin(rate_m, 700))
+      m_new <- -log(1 - u * one_minus_e) / pmax(rate_m, .Machine$double.eps)
+      m_new <- pmin(m_new, 1 - 1e-12)
+      
       # rate for t^2: m/2 + omega^2/(2 tau^2)
-      omega_vec <- as.numeric(Omega[-i, i])
-      rate_t <- m_new / 2 + (omega_vec^2) / (2 * tau2)
+      rate_t <- m_new / 2 + (beta^2) / (2 * tau2)
       t2_prop <- rgamma(p - 1, shape = 1.5, rate = rate_t)
 
       # apply stability mask: do not update entries with previous t2 > t_cap
@@ -132,7 +110,7 @@ ghs_like_mcmc <- function(S, n, burnin, nmc, thin = 1, seed = NULL,
       tmp <- OmegaInv_11 %*% beta
       Sigma[-i, -i] <- OmegaInv_11 + (tmp %*% t(tmp)) / gamma_i
       Sigma[-i, i]  <- - tmp / gamma_i
-      Sigma[i, -i]  <- - t(tmp) / gamma_i
+      Sigma[i, -i]  <- - tmp / gamma_i
       Sigma[i, i]   <- 1 / gamma_i
     } # end for i
 
@@ -151,20 +129,13 @@ ghs_like_mcmc <- function(S, n, burnin, nmc, thin = 1, seed = NULL,
     if (iter > burnin && ((iter - burnin) %% thin == 0)) {
       save_idx <- save_idx + 1L
       tau2_path[save_idx] <- tau2
-      if (save_omega) {
-        Omegas[, , save_idx] <- Omega
-      } else {
-        Omega_mean <- Omega_mean + Omega
-      }
+      Omegas[, , save_idx] <- Omega
+      
       if (verbose && (save_idx %% max(1, floor(nmc / 10)) == 0)) {
         cat(sprintf("Saved %d / %d posterior draws...\n", save_idx, nmc))
       }
     }
   } # end for iter
-
-  if (!save_omega) {
-    Omega_mean <- Omega_mean / nmc
-  }
 
   out <- list(
     Omega_last = Omega,
@@ -176,14 +147,10 @@ ghs_like_mcmc <- function(S, n, burnin, nmc, thin = 1, seed = NULL,
     M_last     = Maux,
     burnin     = burnin,
     nmc        = nmc,
-    thin       = thin,
-    save_omega = save_omega
+    thin       = thin
   )
-  if (save_omega) {
-    out$Omegas <- Omegas
-  } else {
-    out$Omega_mean <- Omega_mean
-  }
+  
+  out$Omegas <- Omegas
   class(out) <- "ghs_like_mcmc"
   out
 }

@@ -141,7 +141,8 @@ concentration_horseshoe <- function(Y, burn = 1000, iter = 5000, lambda = 1,
     }
     
     # xi update : halfCauchy
-    tempt <- sum(estimate_Omega^2 * eta)/4
+    upper_idx <- upper.tri(eta, diag = FALSE)
+    tempt <- sum(estimate_Omega[upper_idx]^2 * eta[upper_idx])/2
     utau <- stats::runif(1, 0, 1/(1 + xi))
     ubt <- (1 - utau)/utau
     Fubt <- stats::pgamma(ubt, (p*(p-1)+2)/4, scale = 1/tempt)
@@ -346,7 +347,8 @@ concentration_horseshoe2 <- function(Y, burn = 1000, iter = 5000, lambda = 1,
     }
     
     # xi update : halfCauchy
-    tempt <- sum(estimate_Omega^2 * eta)/4
+    upper_idx <- upper.tri(eta, diag = FALSE)
+    tempt <- sum(estimate_Omega[upper_idx]^2 * eta[upper_idx])/2
     utau <- stats::runif(1, 0, 1/(1 + xi))
     ubt <- (1 - utau)/utau
     Fubt <- stats::pgamma(ubt, (p*(p-1)+2)/4, scale = 1/tempt)
